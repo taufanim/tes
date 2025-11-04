@@ -1,0 +1,235 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Excel: Convert “TANGGAL UJI (hh/bb/yyyy)” to Long Date (Indonesian, tanpa hari)</title>
+  <style>
+    :root{--bg:#0b1220;--card:#131b2e;--muted:#8ea1c0;--acc:#3aa6ff;--good:#1db954;--bad:#ff6961}
+    html,body{height:100%}
+    body{margin:0;font-family:system-ui,-apple-system,Segoe UI,Roboto,Ubuntu,"Helvetica Neue",Arial,"Noto Sans",sans-serif;background:linear-gradient(180deg,#0b1220,#0e1630);color:#e8eeff}
+    .wrap{max-width:1100px;margin:32px auto;padding:0 20px}
+    .card{background:var(--card);border:1px solid #1f2942;border-radius:16px;box-shadow:0 10px 30px rgba(0,0,0,.3);padding:22px}
+    h1{font-size:clamp(22px,3.5vw,32px);margin:0 0 10px}
+    p{color:var(--muted);margin:6px 0 18px}
+    .controls{display:grid;gap:14px;grid-template-columns:1fr;align-items:center}
+    .row{display:flex;gap:12px;flex-wrap:wrap}
+    input[type="file"],button,select{background:#0f1730;border:1px solid #29365a;color:#e8eeff;border-radius:12px;padding:12px 14px;font-size:14px}
+    input[type="text"]{background:#0f1730;border:1px solid #29365a;color:#e8eeff;border-radius:12px;padding:12px 14px;font-size:14px;width:100%}
+    button{cursor:pointer}
+    button.primary{background:var(--acc);border-color:#2e7dc2;color:#001227;font-weight:700}
+    button.success{background:var(--good);border-color:#138742;color:#00180d;font-weight:700}
+    button:disabled{opacity:.6;cursor:not-allowed}
+    .status{display:flex;align-items:center;gap:10px;margin:8px 0 0;font-size:13px;color:var(--muted)}
+    .status b{color:#fff}
+    .grid{margin-top:18px;overflow:auto;border-radius:12px;border:1px solid #223053}
+    table{border-collapse:collapse;width:100%;min-width:720px}
+    th,td{border-bottom:1px solid #1f2b4a;padding:10px 12px;text-align:left;font-size:13px}
+    th{position:sticky;top:0;background:#121a31;color:#b8c7e8}
+    .pill{display:inline-flex;align-items:center;gap:8px;padding:8px 12px;border-radius:999px;background:#0e1731;border:1px solid #2a3b66}
+    .small{font-size:12px;color:var(--muted)}
+    .footer{margin-top:12px;display:flex;justify-content:space-between;gap:10px;flex-wrap:wrap}
+    .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Monaco,Consolas,"Liberation Mono","Courier New",monospace}
+    .tag{background:#0d1a2e;border:1px dashed #2b3d66;border-radius:8px;padding:6px 8px;color:#a9b9dc}
+  </style>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <h1>Convert Kolom <span class="mono">"TANGGAL UJI (hh/bb/yyyy)"</span> → Long Date Indonesia (tanpa hari)</h1>
+      <p>Unggah file Excel, lalu aplikasi ini akan mencari kolom bernama <b>TANGGAL UJI (hh/bb/yyyy)</b>, mengonversi setiap nilainya ke format tanggal panjang Indonesia tanpa nama hari (mis. <i>4 November 2025</i>), dan <b>menulis ulang sebagai teks</b> agar tidak berubah lagi di Excel.</p>
+
+      <div class="controls">
+        <div class="row">
+          <input id="file" type="file" accept=".xlsx,.xls,.xlsb,.xlsm,.csv" />
+          <button id="process" class="primary" disabled>Proses & Konversi</button>
+          <button id="download" class="success" disabled>Unduh Hasil (.xlsx)</button>
+        </div>
+        <div class="row">
+          <input id="colName" type="text" value="TANGGAL UJI (hh/bb/yyyy)" aria-label="Nama kolom" />
+          <div class="pill small">Locale: <b>id-ID</b> • Format tanpa hari • Output teks</div>
+        </div>
+      </div>
+
+      <div class="status" id="status">Tidak ada file.</div>
+      <div class="grid" id="preview" hidden></div>
+    </div>
+  </div>
+
+<script>
+(function(){
+  const $ = (sel) => document.querySelector(sel);
+  const fileInput = $('#file');
+  const btnProcess = $('#process');
+  const btnDownload = $('#download');
+  const status = $('#status');
+  const preview = $('#preview');
+  const colNameInput = $('#colName');
+
+  let workbook, originalFileName, editedWB;
+
+  function setStatus(msg){ status.innerHTML = msg; }
+  function humanBytes(bytes){
+    if(!bytes && bytes !== 0) return '-';
+    const units = ['B','KB','MB','GB'];
+    const i = Math.floor(Math.log(bytes)/Math.log(1024));
+    return (bytes/Math.pow(1024,i)).toFixed(2)+' '+units[i];
+  }
+
+  function parseToDate(value){
+    if(value == null || value === '') return null;
+    if(typeof value === 'number'){
+      const o = XLSX.SSF.parse_date_code(value);
+      if(!o) return null;
+      return new Date(o.y, (o.m-1), o.d);
+    }
+    if(Object.prototype.toString.call(value) === '[object Date]' && !isNaN(value)){
+      return value;
+    }
+    if(typeof value === 'string'){
+      const s = value.trim();
+      let m = s.match(/^\s*(\d{4})[\/-](\d{1,2})[\/-](\d{1,2})\s*$/);
+      if(m){
+        const y = +m[1], mo = +m[2]-1, d = +m[3];
+        const dt = new Date(y, mo, d);
+        return isNaN(dt) ? null : dt;
+      }
+      m = s.match(/^\s*(\d{1,2})[\/-](\d{1,2})[\/-](\d{2,4})\s*$/);
+      if(m){
+        let d = +m[1], mo = +m[2]-1, y = +m[3];
+        if(y < 100){ y += (y >= 70 ? 1900 : 2000); }
+        const dt = new Date(y, mo, d);
+        return isNaN(dt) ? null : dt;
+      }
+    }
+    return null;
+  }
+
+  function formatLongID(date){
+    if(!date) return '';
+    const opts = { day: 'numeric', month: 'long', year: 'numeric' };
+    const fmt = new Intl.DateTimeFormat('id-ID', opts);
+    return fmt.format(date);
+  }
+
+  function toA1(row, col){
+    let c = col + 1, s = '';
+    while(c > 0){
+      const m = (c - 1) % 26;
+      s = String.fromCharCode(65 + m) + s;
+      c = Math.floor((c - 1) / 26);
+    }
+    return s + (row + 1);
+  }
+
+  function buildPreview(sheet){
+    const json = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true });
+    if(!json || !json.length){ preview.hidden = true; return; }
+    const maxRows = Math.min(json.length, 200);
+    let html = '<table><thead><tr>';
+    (json[0]||[]).forEach(h => html += `<th>${String(h||'')}</th>`);
+    html += '</tr></thead><tbody>';
+    for(let r=1; r<maxRows; r++){
+      html += '<tr>';
+      (json[r]||[]).forEach(v => html += `<td>${(v===undefined||v===null)?'':String(v)}</td>`);
+      html += '</tr>';
+    }
+    html += '</tbody></table>';
+    preview.innerHTML = html;
+    preview.hidden = false;
+  }
+
+  fileInput.addEventListener('change', async (e)=>{
+    const file = e.target.files && e.target.files[0];
+    if(!file){ setStatus('Tidak ada file.'); btnProcess.disabled = true; return; }
+    originalFileName = file.name.replace(/\.(xlsx|xls|xlsm|xlsb|csv)$/i,'') || 'Workbook';
+    setStatus(`File dipilih: <b>${file.name}</b> • ${humanBytes(file.size)} — Silakan klik <b>Proses & Konversi</b>.`);
+    const buf = await file.arrayBuffer();
+    workbook = XLSX.read(buf, { type: 'array' });
+    const firstSheetName = workbook.SheetNames[0];
+    buildPreview(workbook.Sheets[firstSheetName]);
+    btnProcess.disabled = false;
+    btnDownload.disabled = true;
+    editedWB = null;
+  });
+
+  btnProcess.addEventListener('click', ()=>{
+    if(!workbook){ setStatus('Pilih file terlebih dahulu.'); return; }
+    const colHeader = (colNameInput.value || '').trim();
+    if(!colHeader){ setStatus('Nama kolom tidak boleh kosong.'); return; }
+
+    const tmp = XLSX.write(workbook, {bookType:'xlsx', type:'array'});
+    editedWB = XLSX.read(tmp, {type:'array'});
+
+    let totalConverted = 0, affectedSheets = 0;
+
+    editedWB.SheetNames.forEach((name)=>{
+      const ws = editedWB.Sheets[name];
+      const rng = XLSX.utils.decode_range(ws['!ref'] || 'A1');
+
+      let headerRow = -1, targetCol = -1;
+      outer: for(let r=rng.s.r; r<=Math.min(rng.s.r+9, rng.e.r); r++){
+        for(let c=rng.s.c; c<=rng.e.c; c++){
+          const addr = toA1(r,c);
+          const cell = ws[addr];
+          if(!cell) continue;
+          const v = String(cell.v||'').trim();
+          if(v.toLowerCase() === colHeader.toLowerCase()){
+            headerRow = r; targetCol = c; break outer;
+          }
+        }
+      }
+
+      if(targetCol === -1) return;
+
+      let convertedHere = 0;
+      for(let r=headerRow+1; r<=rng.e.r; r++){
+        const addr = toA1(r, targetCol);
+        const cell = ws[addr];
+        if(!cell) continue;
+
+        const date = parseToDate(cell.v);
+        const text = formatLongID(date);
+        if(text){
+          ws[addr] = { t: 's', v: text };
+          convertedHere++;
+        }
+      }
+      if(convertedHere>0){
+        affectedSheets++;
+        totalConverted += convertedHere;
+        if(ws['!ref']) ws['!ref'] = XLSX.utils.encode_range(rng);
+      }
+    });
+
+    if(totalConverted===0){
+      setStatus(`Kolom <b>${colHeader}</b> tidak ditemukan atau tidak ada nilai tanggal yang valid.`);
+      btnDownload.disabled = true;
+      return;
+    }
+
+    const firstSheetName = editedWB.SheetNames[0];
+    buildPreview(editedWB.Sheets[firstSheetName]);
+    setStatus(`Selesai: <b>${totalConverted}</b> sel dikonversi menjadi format tanggal panjang Indonesia tanpa hari.`);
+    btnDownload.disabled = false;
+  });
+
+  btnDownload.addEventListener('click', ()=>{
+    if(!editedWB){ setStatus('Belum ada hasil untuk diunduh.'); return; }
+    const out = XLSX.write(editedWB, {bookType:'xlsx', type:'array'});
+    const blob = new Blob([out], {type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'});
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    const suffix = '-formatted-id-longdate-tanpa-hari';
+    a.href = url;
+    a.download = `${originalFileName || 'Workbook'}${suffix}.xlsx`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    URL.revokeObjectURL(url);
+  });
+})();
+</script>
+</body>
+</html>
